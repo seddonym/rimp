@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
-use petgraph::stable_graph::NodeIndex;
-use petgraph::stable_graph::StableGraph;
-use std::collections::{HashMap, HashSet};
+use petgraph::graphmap::DiGraphMap;
+use std::collections::HashSet;
 
 // Delimiter for Python modules.
 const DELIMITER: char = '.';
@@ -36,28 +35,28 @@ impl Module {
 }
 struct Graph<'a> {
     pub modules: HashSet<Module>,
-    module_indices: HashMap<NodeIndex, Module>,
-    hierarchy: StableGraph<&'a Module, ()>,
+    hierarchy: DiGraphMap<&'a Module, ()>,
 }
 
 impl<'a> Graph<'a> {
     pub fn new() -> Graph<'a> {
         Graph {
             modules: HashSet::new(),
-            module_indices: HashMap::new(),
-            hierarchy: StableGraph::new(),
+            hierarchy: DiGraphMap::new(),
         }
     }
 
-    pub fn add_module(&mut self, module: &'a Module) {
-        let index = self.hierarchy.add_node(module);
-        if !module.is_root() {
-            //let parent = Module::new_parent(&module);
-
-            //self.hierarchy.add_edge(&parent, &module, ());
-        }
-        self.module_indices.insert(index, module.clone());
+    pub fn add_module(&'a mut self, module: &'a Module) {
+        self.hierarchy.add_node(&module);
         self.modules.insert(module.clone());
+
+        if !module.is_root() {
+            self.modules.insert(Module::new_parent(&module));
+
+            let parent_in_modules = self.modules.get(&Module::new_parent(&module)).unwrap();
+
+            self.hierarchy.add_edge(&parent_in_modules, &module, ());
+        }
     }
 
     pub fn find_children(&self, module: &'a Module) -> HashSet<&'a Module> {
@@ -157,28 +156,6 @@ mod tests {
             HashSet::from([&mypackage_foo, &mypackage_bar])
         );
     }
-
-    // #[test]
-    // fn tutorial() {
-    //     use petgraph::graph::Graph;
-    //     use petgraph::graphmap::DiGraphMap;
-
-    //     let mut graph = DiGraphMap::<&Module, _>::new();
-    //     let foo = Module::new("foo".to_string());
-    //     graph.add_node(&foo);
-    //     let blue = Module::new("foo.blue".to_string());
-    //     graph.add_node(&blue);
-    //     let green = Module::new("foo.green".to_string());
-    //     graph.add_node(&green);
-
-    //     graph.add_edge(&foo, &blue, 1);
-    //     graph.add_edge(&foo, &green, 1);
-
-    //     let children: Vec<&Module> = graph
-    //         .neighbors_directed(&foo, petgraph::Direction::Outgoing)
-    //         .collect();
-    //     assert_eq!(children, vec![&blue, &green]);
-    // }
 
     #[test]
     fn find_children_multiple_results() {
