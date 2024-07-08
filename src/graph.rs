@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use petgraph::graphmap::DiGraphMap;
+use bimap::BiMap;
+use petgraph::stable_graph::{NodeIndex, StableGraph};
 use std::collections::HashSet;
 
 // Delimiter for Python modules.
@@ -33,34 +34,46 @@ impl Module {
         Module::new(parent_name)
     }
 }
-struct Graph<'a> {
-    pub modules: HashSet<Module>,
-    hierarchy: DiGraphMap<&'a Module, ()>,
+#[derive(Default)]
+struct Graph {
+    // Bidirectional lookup between Module and NodeIndex.
+    module_indices: BiMap<Module, NodeIndex>,
+    hierarchy: StableGraph<Module, ()>,
 }
 
-impl<'a> Graph<'a> {
-    pub fn new() -> Graph<'a> {
-        Graph {
-            modules: HashSet::new(),
-            hierarchy: DiGraphMap::new(),
-        }
-    }
+impl Graph {
+    pub fn add_module(&mut self, module: Module) {
+        let module_index = self.hierarchy.add_node(module.clone());
+        self.module_indices.insert(module.clone(), module_index);
 
-    pub fn add_module(&'a mut self, module: &'a Module) {
-        self.hierarchy.add_node(&module);
-        self.modules.insert(module.clone());
-
+        // Add to the hierarchy from the module's parent, if it has one.
         if !module.is_root() {
-            self.modules.insert(Module::new_parent(&module));
+            let parent = Module::new_parent(&module);
 
-            let parent_in_modules = self.modules.get(&Module::new_parent(&module)).unwrap();
+            // If the parent isn't already in the graph, add it.
+            let parent_index = match self.module_indices.get_by_left(&parent) {
+                Some(index) => index,
+                None => {
+                    self.add_module(parent.clone());
+                    self.module_indices.get_by_left(&parent).unwrap()
+                }
+            };
 
-            self.hierarchy.add_edge(&parent_in_modules, &module, ());
+            self.hierarchy.add_edge(*parent_index, module_index, ());
         }
     }
 
-    pub fn find_children(&self, module: &'a Module) -> HashSet<&'a Module> {
-        HashSet::new()
+    pub fn get_modules(&self) -> HashSet<&Module> {
+        self.module_indices.left_values().collect()
+    }
+
+    #[allow(unused_variables)]
+    pub fn find_children(&self, module: &Module) -> HashSet<&Module> {
+        let module_index = self.module_indices.get_by_left(module).unwrap();
+        self.hierarchy
+            .neighbors(*module_index)
+            .map(|index| self.module_indices.get_by_right(&index).unwrap())
+            .collect()
     }
 }
 
@@ -70,9 +83,9 @@ mod tests {
 
     #[test]
     fn modules_when_empty() {
-        let graph = Graph::new();
+        let graph = Graph::default();
 
-        assert_eq!(graph.modules, HashSet::new());
+        assert_eq!(graph.get_modules(), HashSet::new());
     }
 
     #[test]
@@ -85,36 +98,26 @@ mod tests {
 
     #[test]
     fn add_module() {
-        let mut graph = Graph::new();
         let mypackage = Module::new("mypackage".to_string());
+        let mut graph = Graph::default();
+        graph.add_module(mypackage.clone());
 
-        graph.add_module(&mypackage);
+        let result = graph.get_modules();
 
-        assert_eq!(graph.modules, HashSet::from([mypackage]));
+        assert_eq!(result, HashSet::from([&mypackage]));
     }
 
     #[test]
     fn add_modules() {
-        let mut graph = Graph::new();
+        let mut graph = Graph::default();
         let mypackage = Module::new("mypackage".to_string());
         let mypackage_foo = Module::new("mypackage.foo".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
 
-        graph.add_module(&mypackage);
-        graph.add_module(&mypackage_foo);
+        let result = graph.get_modules();
 
-        assert_eq!(graph.modules, HashSet::from([mypackage, mypackage_foo]));
-    }
-
-    #[test]
-    fn find_children_no_results() {
-        let mut graph = Graph::new();
-        let mypackage = Module::new("mypackage".to_string());
-        let mypackage_foo = Module::new("mypackage.foo".to_string());
-
-        graph.add_module(&mypackage);
-        graph.add_module(&mypackage_foo);
-
-        assert_eq!(graph.find_children(&mypackage_foo), HashSet::new());
+        assert_eq!(result, HashSet::from([&mypackage, &mypackage_foo]));
     }
 
     #[test]
@@ -140,16 +143,27 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    fn find_children_no_results() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+
+        assert_eq!(graph.find_children(&mypackage_foo), HashSet::new());
+    }
+
+    #[test]
     fn find_children_one_result() {
-        let mut graph = Graph::new();
+        let mut graph = Graph::default();
         let mypackage = Module::new("mypackage".to_string());
         let mypackage_foo = Module::new("mypackage.foo".to_string());
         let mypackage_bar = Module::new("mypackage.bar".to_string());
 
-        graph.add_module(&mypackage);
-        graph.add_module(&mypackage_foo);
-        graph.add_module(&mypackage_bar);
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
 
         assert_eq!(
             graph.find_children(&mypackage),
@@ -159,17 +173,33 @@ mod tests {
 
     #[test]
     fn find_children_multiple_results() {
-        let mut graph = Graph::new();
+        let mut graph = Graph::default();
         let mypackage = Module::new("mypackage".to_string());
         let mypackage_foo = Module::new("mypackage.foo".to_string());
         let mypackage_bar = Module::new("mypackage.bar".to_string());
 
-        graph.add_module(&mypackage);
-        graph.add_module(&mypackage_foo);
-        graph.add_module(&mypackage_bar);
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
 
         assert_eq!(
             graph.find_children(&mypackage),
+            HashSet::from([&mypackage_foo, &mypackage_bar])
+        );
+    }
+
+    #[test]
+    fn find_children_works_when_adding_orphans() {
+        let mut graph = Graph::default();
+        // Note: mypackage is not in the graph.
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+
+        assert_eq!(
+            graph.find_children(&Module::new("mypackage".to_string())),
             HashSet::from([&mypackage_foo, &mypackage_bar])
         );
     }
