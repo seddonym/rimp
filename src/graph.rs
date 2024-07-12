@@ -2,6 +2,7 @@
 
 use bimap::BiMap;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
+use petgraph::visit::{Bfs, Walker};
 use std::collections::HashSet;
 
 // Delimiter for Python modules.
@@ -67,11 +68,19 @@ impl Graph {
         self.module_indices.left_values().collect()
     }
 
-    #[allow(unused_variables)]
     pub fn find_children(&self, module: &Module) -> HashSet<&Module> {
         let module_index = self.module_indices.get_by_left(module).unwrap();
         self.hierarchy
             .neighbors(*module_index)
+            .map(|index| self.module_indices.get_by_right(&index).unwrap())
+            .collect()
+    }
+
+    pub fn find_descendants(&self, module: &Module) -> HashSet<&Module> {
+        let module_index = self.module_indices.get_by_left(module).unwrap();
+        Bfs::new(&self.hierarchy, *module_index)
+            .iter(&self.hierarchy)
+            .filter(|index| index != module_index) // Don't include the supplied module.
             .map(|index| self.module_indices.get_by_right(&index).unwrap())
             .collect()
     }
@@ -201,6 +210,58 @@ mod tests {
         assert_eq!(
             graph.find_children(&Module::new("mypackage".to_string())),
             HashSet::from([&mypackage_foo, &mypackage_bar])
+        );
+    }
+
+    #[test]
+    fn find_descendants_no_results() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+
+        assert_eq!(graph.find_descendants(&mypackage_bar), HashSet::new());
+    }
+
+    #[test]
+    fn find_descendants_multiple_results() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+
+        assert_eq!(
+            graph.find_descendants(&mypackage_foo),
+            HashSet::from([
+                &mypackage_foo_alpha,
+                &mypackage_foo_alpha_blue,
+                &mypackage_foo_alpha_green,
+                &mypackage_foo_beta
+            ])
         );
     }
 }
