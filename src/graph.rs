@@ -38,25 +38,28 @@ impl Module {
 #[derive(Default)]
 struct Graph {
     // Bidirectional lookup between Module and NodeIndex.
-    module_indices: BiMap<Module, NodeIndex>,
+    hierarchy_module_indices: BiMap<Module, NodeIndex>,
     hierarchy: StableGraph<Module, ()>,
+    imports_module_indices: BiMap<Module, NodeIndex>,
+    imports: StableGraph<Module, ()>,
 }
 
 impl Graph {
     pub fn add_module(&mut self, module: Module) {
         let module_index = self.hierarchy.add_node(module.clone());
-        self.module_indices.insert(module.clone(), module_index);
+        self.hierarchy_module_indices
+            .insert(module.clone(), module_index);
 
         // Add to the hierarchy from the module's parent, if it has one.
         if !module.is_root() {
             let parent = Module::new_parent(&module);
 
             // If the parent isn't already in the graph, add it.
-            let parent_index = match self.module_indices.get_by_left(&parent) {
+            let parent_index = match self.hierarchy_module_indices.get_by_left(&parent) {
                 Some(index) => index,
                 None => {
                     self.add_module(parent.clone());
-                    self.module_indices.get_by_left(&parent).unwrap()
+                    self.hierarchy_module_indices.get_by_left(&parent).unwrap()
                 }
             };
 
@@ -65,24 +68,44 @@ impl Graph {
     }
 
     pub fn get_modules(&self) -> HashSet<&Module> {
-        self.module_indices.left_values().collect()
+        self.hierarchy_module_indices.left_values().collect()
     }
 
     pub fn find_children(&self, module: &Module) -> HashSet<&Module> {
-        let module_index = self.module_indices.get_by_left(module).unwrap();
+        let module_index = self.hierarchy_module_indices.get_by_left(module).unwrap();
         self.hierarchy
             .neighbors(*module_index)
-            .map(|index| self.module_indices.get_by_right(&index).unwrap())
+            .map(|index| self.hierarchy_module_indices.get_by_right(&index).unwrap())
             .collect()
     }
 
     pub fn find_descendants(&self, module: &Module) -> HashSet<&Module> {
-        let module_index = self.module_indices.get_by_left(module).unwrap();
+        let module_index = self.hierarchy_module_indices.get_by_left(module).unwrap();
         Bfs::new(&self.hierarchy, *module_index)
             .iter(&self.hierarchy)
             .filter(|index| index != module_index) // Don't include the supplied module.
-            .map(|index| self.module_indices.get_by_right(&index).unwrap())
+            .map(|index| self.hierarchy_module_indices.get_by_right(&index).unwrap())
             .collect()
+    }
+
+    #[allow(unused)]
+    pub fn add_import(&mut self, importer: &Module, imported: &Module) {
+        let importer_index = self.imports.add_node(importer.clone());
+        self.imports_module_indices
+            .insert(importer.clone(), importer_index);
+        let imported_index = self.imports.add_node(imported.clone());
+        self.imports_module_indices
+            .insert(imported.clone(), imported_index);
+
+        self.imports.add_edge(importer_index, imported_index, ());
+    }
+
+    #[allow(unused)]
+    pub fn direct_import_exists(&self, importer: &Module, imported: &Module) -> bool {
+        let importer_index = *self.imports_module_indices.get_by_left(importer).unwrap();
+        let imported_index = *self.imports_module_indices.get_by_left(imported).unwrap();
+
+        self.imports.contains_edge(importer_index, imported_index)
     }
 }
 
@@ -263,5 +286,33 @@ mod tests {
                 &mypackage_foo_beta
             ])
         );
+    }
+
+    #[test]
+    fn direct_import_exists_returns_true() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_import(&mypackage_foo, &mypackage_bar);
+
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar));
+    }
+
+    #[test]
+    fn direct_import_exists_returns_false() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_import(&mypackage_foo, &mypackage_bar);
+
+        assert!(!graph.direct_import_exists(&mypackage_bar, &mypackage_foo));
     }
 }
