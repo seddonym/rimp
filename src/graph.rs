@@ -3,6 +3,7 @@
 use bimap::BiMap;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{Bfs, Walker};
+use petgraph::Direction;
 use std::collections::HashSet;
 
 // Delimiter for Python modules.
@@ -92,22 +93,78 @@ impl Graph {
         self.add_module_if_not_in_hierarchy(&importer);
         self.add_module_if_not_in_hierarchy(&imported);
 
-        let importer_index = self.imports.add_node(importer.clone());
-        self.imports_module_indices
-            .insert(importer.clone(), importer_index);
-        let imported_index = self.imports.add_node(imported.clone());
-        self.imports_module_indices
-            .insert(imported.clone(), imported_index);
+        let importer_index: NodeIndex = match self.imports_module_indices.get_by_left(&importer) {
+            Some(index) => *index,
+            None => {
+                let index = self.imports.add_node(importer.clone());
+                self.imports_module_indices.insert(importer.clone(), index);
+                index
+            }
+        };
+        let imported_index: NodeIndex = match self.imports_module_indices.get_by_left(&imported) {
+            Some(index) => *index,
+            None => {
+                let index = self.imports.add_node(imported.clone());
+                self.imports_module_indices.insert(imported.clone(), index);
+                index
+            }
+        };
 
         self.imports.add_edge(importer_index, imported_index, ());
+        // println!(
+        //     "Added {:?} {:?} -> {:?} {:?}, edge count now {:?}",
+        //     importer,
+        //     importer_index,
+        //     imported,
+        //     imported_index,
+        //     self.imports.edge_count()
+        // );
     }
 
-    pub fn direct_import_exists(&self, importer: &Module, imported: &Module) -> bool {
+    #[warn(unused_variables)]
+    pub fn direct_import_exists(
+        &self,
+        importer: &Module,
+        imported: &Module,
+        as_packages: bool,
+    ) -> bool {
         let importer_index = *self.imports_module_indices.get_by_left(importer).unwrap();
         let imported_index = *self.imports_module_indices.get_by_left(imported).unwrap();
 
         self.imports.contains_edge(importer_index, imported_index)
     }
+
+    pub fn find_modules_that_directly_import(&self, imported: &Module) -> HashSet<&Module> {
+        let imported_index = *self.imports_module_indices.get_by_left(imported).unwrap();
+        println!(
+            "module, {:?}, imported_index {:?}",
+            imported, imported_index
+        );
+        let importer_indices: HashSet<NodeIndex> = self
+            .imports
+            .neighbors_directed(imported_index, Direction::Incoming)
+            .collect();
+
+        println!("importer indices {:?}", importer_indices);
+        for i in importer_indices.iter() {
+            println!(
+                "Importer {:?}",
+                self.imports_module_indices.get_by_right(&i).unwrap()
+            );
+        }
+        let importers: HashSet<&Module> = importer_indices
+            .iter()
+            .map(|importer_index| {
+                self.imports_module_indices
+                    .get_by_right(&importer_index)
+                    .unwrap()
+            })
+            .collect();
+        importers
+    }
+
+    #[warn(unused_variables)]
+    pub fn squash_module(&mut self, module: &Module) {}
 
     fn add_module_if_not_in_hierarchy(&mut self, module: &Module) {
         if self.hierarchy_module_indices.get_by_left(&module).is_none() {
@@ -306,7 +363,7 @@ mod tests {
         graph.add_module(mypackage_bar.clone());
         graph.add_import(&mypackage_foo, &mypackage_bar);
 
-        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar));
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar, false));
     }
 
     #[test]
@@ -320,7 +377,23 @@ mod tests {
         graph.add_module(mypackage_bar.clone());
         graph.add_import(&mypackage_foo, &mypackage_bar);
 
-        assert!(!graph.direct_import_exists(&mypackage_bar, &mypackage_foo));
+        assert!(!graph.direct_import_exists(&mypackage_bar, &mypackage_foo, false));
+    }
+
+    #[test]
+    fn direct_import_exists_returns_false_root_to_child() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_import(&mypackage_bar, &mypackage_foo_alpha);
+
+        assert!(!graph.direct_import_exists(&mypackage_bar, &mypackage_foo, false));
     }
 
     #[test]
@@ -337,7 +410,7 @@ mod tests {
             graph.get_modules(),
             HashSet::from([&mypackage, &mypackage_bar, &mypackage_foo])
         );
-        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar));
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar, false));
     }
 
     #[test]
@@ -354,6 +427,160 @@ mod tests {
             graph.get_modules(),
             HashSet::from([&mypackage, &mypackage_bar, &mypackage_foo])
         );
-        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar));
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar, false));
+    }
+
+    #[test]
+    fn direct_import_exists_with_as_packages_returns_false() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+        // Add an import in the other direction.
+        graph.add_import(&mypackage_bar, &mypackage_foo);
+
+        assert!(!graph.direct_import_exists(&mypackage_foo, &mypackage_bar, true));
+    }
+
+    #[test]
+    fn direct_import_exists_with_as_packages_returns_true_between_roots() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+        graph.add_import(&mypackage_foo, &mypackage_bar);
+
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar, true));
+    }
+
+    #[test]
+    fn direct_import_exists_with_as_packages_returns_true_root_to_child() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+        graph.add_import(&mypackage_bar, &mypackage_foo_alpha);
+
+        assert!(graph.direct_import_exists(&mypackage_bar, &mypackage_foo, true));
+    }
+
+    #[test]
+    fn direct_import_exists_with_as_packages_returns_true_child_to_root() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+        graph.add_import(&mypackage_foo_alpha, &mypackage_bar);
+
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar, true));
+    }
+
+    #[test]
+    fn find_modules_that_directly_import() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+        let anotherpackage = Module::new("anotherpackage".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+        graph.add_import(&mypackage_foo_alpha, &mypackage_bar);
+        graph.add_import(&anotherpackage, &mypackage_bar);
+        graph.add_import(&mypackage_bar, &mypackage_foo_alpha_green);
+
+        let result = graph.find_modules_that_directly_import(&mypackage_bar);
+
+        assert_eq!(
+            result,
+            HashSet::from([&mypackage_foo_alpha, &anotherpackage])
+        )
+    }
+
+    #[test]
+    fn squash_module() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foobar = Module::new("mypackage.foobar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+        let mypackage_bar_beta = Module::new("mypackage.bar.beta".to_string());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+        graph.add_import(&mypackage_foo_alpha, &mypackage_bar_beta);
+        graph.add_import(&mypackage_foo_alpha, &mypackage_bar_beta);
+        graph.add_import(&mypackage_foobar, &mypackage_foo_beta);
+
+        graph.squash_module(&mypackage_foo);
+
+        assert_eq!(
+            graph.get_modules(),
+            HashSet::from([
+                &mypackage,
+                &mypackage_foo,
+                &mypackage_bar,
+                &mypackage_bar_beta
+            ])
+        );
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar_beta, false));
+        assert!(graph.direct_import_exists(&mypackage_foobar, &mypackage_foo, false));
     }
 }
