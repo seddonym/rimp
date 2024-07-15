@@ -88,8 +88,10 @@ impl Graph {
             .collect()
     }
 
-    #[allow(unused)]
     pub fn add_import(&mut self, importer: &Module, imported: &Module) {
+        self.add_module_if_not_in_hierarchy(&importer);
+        self.add_module_if_not_in_hierarchy(&imported);
+
         let importer_index = self.imports.add_node(importer.clone());
         self.imports_module_indices
             .insert(importer.clone(), importer_index);
@@ -100,12 +102,17 @@ impl Graph {
         self.imports.add_edge(importer_index, imported_index, ());
     }
 
-    #[allow(unused)]
     pub fn direct_import_exists(&self, importer: &Module, imported: &Module) -> bool {
         let importer_index = *self.imports_module_indices.get_by_left(importer).unwrap();
         let imported_index = *self.imports_module_indices.get_by_left(imported).unwrap();
 
         self.imports.contains_edge(importer_index, imported_index)
+    }
+
+    fn add_module_if_not_in_hierarchy(&mut self, module: &Module) {
+        if self.hierarchy_module_indices.get_by_left(&module).is_none() {
+            self.add_module(module.clone());
+        };
     }
 }
 
@@ -314,5 +321,39 @@ mod tests {
         graph.add_import(&mypackage_foo, &mypackage_bar);
 
         assert!(!graph.direct_import_exists(&mypackage_bar, &mypackage_foo));
+    }
+
+    #[test]
+    fn add_import_with_non_existent_importer_adds_that_module() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        graph.add_module(mypackage_bar.clone());
+
+        graph.add_import(&mypackage_foo, &mypackage_bar);
+
+        assert_eq!(
+            graph.get_modules(),
+            HashSet::from([&mypackage, &mypackage_bar, &mypackage_foo])
+        );
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar));
+    }
+
+    #[test]
+    fn add_import_with_non_existent_imported_adds_that_module() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        graph.add_module(mypackage_foo.clone());
+
+        graph.add_import(&mypackage_foo, &mypackage_bar);
+
+        assert_eq!(
+            graph.get_modules(),
+            HashSet::from([&mypackage, &mypackage_bar, &mypackage_foo])
+        );
+        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar));
     }
 }
