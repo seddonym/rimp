@@ -163,8 +163,31 @@ impl Graph {
         importers
     }
 
+    pub fn find_modules_directly_imported_by(&self, importer: &Module) -> HashSet<&Module> {
+        let importer_index = *self.imports_module_indices.get_by_left(importer).unwrap();
+        let imported_indices: HashSet<NodeIndex> = self
+            .imports
+            .neighbors_directed(importer_index, Direction::Outgoing)
+            .collect();
+
+        let importeds: HashSet<&Module> = imported_indices
+            .iter()
+            .map(|imported_index| {
+                self.imports_module_indices
+                    .get_by_right(&imported_index)
+                    .unwrap()
+            })
+            .collect();
+        importeds
+    }
+
     #[warn(unused_variables)]
-    pub fn squash_module(&mut self, module: &Module) {}
+    pub fn squash_module(&mut self, module: &Module) {
+        let descendants = self.find_descendants(module);
+        for descendant in descendants {
+            let importers_of_descendant = self.find_modules_that_directly_import(descendant);
+        }
+    }
 
     fn add_module_if_not_in_hierarchy(&mut self, module: &Module) {
         if self.hierarchy_module_indices.get_by_left(&module).is_none() {
@@ -542,6 +565,36 @@ mod tests {
         graph.add_import(&mypackage_bar, &mypackage_foo_alpha_green);
 
         let result = graph.find_modules_that_directly_import(&mypackage_bar);
+
+        assert_eq!(
+            result,
+            HashSet::from([&mypackage_foo_alpha, &anotherpackage])
+        )
+    }
+
+    #[test]
+    fn find_modules_directly_imported_by() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
+        let mypackage_foo_alpha_green = Module::new("mypackage.foo.alpha.green".to_string());
+        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
+        let anotherpackage = Module::new("anotherpackage".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_module(mypackage_foo_alpha_blue.clone());
+        graph.add_module(mypackage_foo_alpha_green.clone());
+        graph.add_module(mypackage_foo_beta.clone());
+        graph.add_import(&mypackage_bar, &mypackage_foo_alpha);
+        graph.add_import(&mypackage_bar, &anotherpackage);
+        graph.add_import(&mypackage_foo_alpha_green, &mypackage_bar);
+
+        let result = graph.find_modules_directly_imported_by(&mypackage_bar);
 
         assert_eq!(
             result,
