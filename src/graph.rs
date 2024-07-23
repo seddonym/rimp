@@ -121,7 +121,7 @@ impl Graph {
         // );
     }
 
-    #[warn(unused_variables)]
+    #[allow(unused_variables)]
     pub fn direct_import_exists(
         &self,
         importer: &Module,
@@ -181,17 +181,25 @@ impl Graph {
         importeds
     }
 
-    #[warn(unused_variables)]
+    #[allow(unused_variables)]
     pub fn squash_module(&mut self, module: &Module) {
         // Get descendants and their imports.
         let descendants = self.find_descendants(module);
-        let modules_imported_by_descendants: Vec<_> = descendants
+        let modules_imported_by_descendants: Vec<Module> = descendants
             .iter()
-            .flat_map(|descendant| self.find_modules_directly_imported_by(descendant))
+            .flat_map(|descendant| {
+                self.find_modules_directly_imported_by(descendant)
+                    .into_iter()
+                    .cloned()
+            })
             .collect();
-        let modules_that_import_descendants: Vec<_> = descendants
+        let modules_that_import_descendants: Vec<Module> = descendants
             .iter()
-            .flat_map(|descendant| self.find_modules_that_directly_import(descendant))
+            .flat_map(|descendant| {
+                self.find_modules_that_directly_import(descendant)
+                    .into_iter()
+                    .cloned()
+            })
             .collect();
 
         // Remove descendants.
@@ -214,11 +222,11 @@ impl Graph {
 
         // Add descendants and imports to parent module.
         for imported in modules_imported_by_descendants {
-            self.add_import(module, imported);
+            self.add_import(module, &imported);
         }
 
         for importer in modules_that_import_descendants {
-            self.add_import(importer, module);
+            self.add_import(&importer, module);
         }
     }
 
