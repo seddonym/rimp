@@ -172,7 +172,10 @@ impl Graph {
     }
 
     pub fn find_modules_that_directly_import(&self, imported: &Module) -> HashSet<&Module> {
-        let imported_index = *self.imports_module_indices.get_by_left(imported).unwrap();
+        let imported_index = match self.imports_module_indices.get_by_left(imported) {
+            Some(imported_index) => *imported_index,
+            None => return HashSet::new(),
+        };
         println!(
             "module, {:?}, imported_index {:?}",
             imported, imported_index
@@ -201,7 +204,10 @@ impl Graph {
     }
 
     pub fn find_modules_directly_imported_by(&self, importer: &Module) -> HashSet<&Module> {
-        let importer_index = *self.imports_module_indices.get_by_left(importer).unwrap();
+        let importer_index = match self.imports_module_indices.get_by_left(importer) {
+            Some(importer_index) => *importer_index,
+            None => return HashSet::new(),
+        };
         let imported_indices: HashSet<NodeIndex> = self
             .imports
             .neighbors_directed(importer_index, Direction::Outgoing)
