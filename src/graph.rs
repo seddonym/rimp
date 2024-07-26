@@ -36,7 +36,7 @@ impl Module {
         Module::new(parent_name)
     }
 }
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Graph {
     // Bidirectional lookup between Module and NodeIndex.
     hierarchy_module_indices: BiMap<Module, NodeIndex>,
@@ -164,6 +164,18 @@ impl Graph {
         imported: &Module,
         as_packages: bool,
     ) -> bool {
+        let graph_to_use: &Graph;
+        let mut graph_copy: Graph;
+
+        if as_packages == true {
+            graph_copy = self.clone();
+            graph_copy.squash_module(importer);
+            graph_copy.squash_module(imported);
+            graph_to_use = &graph_copy;
+        } else {
+            graph_to_use = self;
+        }
+
         // The modules may appear in the hierarchy, but have no imports, so we
         // return false unless they're both in there.
         let importer_index = match self.imports_module_indices.get_by_left(importer) {
@@ -657,8 +669,7 @@ imports:
         assert!(graph.direct_import_exists(&mypackage_bar, &mypackage_foo, true));
     }
 
-    //#[test]
-    // TODO: get squash_module working first
+    #[test]
     fn direct_import_exists_with_as_packages_returns_true_child_to_root() {
         let mut graph = Graph::default();
         let mypackage = Module::new("mypackage".to_string());
