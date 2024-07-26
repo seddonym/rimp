@@ -234,7 +234,7 @@ impl Graph {
     #[allow(unused_variables)]
     pub fn squash_module(&mut self, module: &Module) {
         // Get descendants and their imports.
-        let descendants = self.find_descendants(module);
+        let descendants: Vec<Module> = self.find_descendants(module).into_iter().cloned().collect();
         let modules_imported_by_descendants: Vec<Module> = descendants
             .iter()
             .flat_map(|descendant| {
@@ -258,16 +258,16 @@ impl Graph {
                 .hierarchy_module_indices
                 .get_by_left(&descendant)
                 .unwrap();
-            // self.hierarchy
-            //     .remove_node(descendant_hierarchy_index.clone());
-            // self.hierarchy_module_indices.remove_by_left(descendant);
+            self.hierarchy
+                .remove_node(descendant_hierarchy_index.clone());
+            self.hierarchy_module_indices.remove_by_left(&descendant);
 
             let descendant_imports_index = self
                 .imports_module_indices
                 .get_by_left(&descendant)
                 .unwrap();
-            // self.imports.remove_node(descendant_imports_index.clone());
-            // self.imports_module_indices.remove_by_left(descendant);
+            self.imports.remove_node(descendant_imports_index.clone());
+            self.imports_module_indices.remove_by_left(&descendant);
         }
 
         // Add descendants and imports to parent module.
@@ -766,7 +766,6 @@ imports:
         graph.add_import(&mypackage_green, &mypackage_blue_beta);
         // Unrelated imports.
         graph.add_import(&mypackage_green, &mypackage_orange);
-        print!("{}", graph.pretty_str());
         assert_eq!(
             graph.pretty_str(),
             "
@@ -804,27 +803,16 @@ hierarchy:
     mypackage -> mypackage.orange
     mypackage -> mypackage.red
     mypackage -> mypackage.yellow
-    mypackage.blue -> mypackage.blue.alpha
-    mypackage.blue -> mypackage.blue.beta
-    mypackage.blue.alpha -> mypackage.blue.alpha.foo
 imports:
     mypackage.blue -> mypackage.green
     mypackage.blue -> mypackage.orange
     mypackage.blue -> mypackage.red
     mypackage.blue -> mypackage.yellow
-    mypackage.blue.alpha -> mypackage.green
-    mypackage.blue.alpha -> mypackage.red
-    mypackage.blue.alpha.foo -> mypackage.yellow
-    mypackage.blue.beta -> mypackage.orange
     mypackage.green -> mypackage.blue
-    mypackage.green -> mypackage.blue.beta
     mypackage.green -> mypackage.orange
     mypackage.orange -> mypackage.blue
-    mypackage.orange -> mypackage.blue.alpha.foo
     mypackage.red -> mypackage.blue
-    mypackage.red -> mypackage.blue.alpha
     mypackage.yellow -> mypackage.blue
-    mypackage.yellow -> mypackage.blue.alpha
 "
             .trim_start()
         );
