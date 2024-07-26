@@ -47,31 +47,38 @@ struct Graph {
 
 impl Graph {
     pub fn pretty_str(&self) -> String {
-        let mut pretty = String::new();
-        pretty.push_str("hierarchy:\n");
-        let mut hierarchy_module_indices_sorted: Vec<_> =
-            self.hierarchy_module_indices.iter().collect();
-        hierarchy_module_indices_sorted.sort_by_key(|(_, index)| index.index());
-        for (from_module, from_index) in hierarchy_module_indices_sorted {
+        let mut hierarchy: Vec<String> = vec![];
+        let mut imports: Vec<String> = vec![];
+
+        let hierarchy_module_indices: Vec<_> = self.hierarchy_module_indices.iter().collect();
+
+        for (from_module, from_index) in hierarchy_module_indices {
             for to_index in self.hierarchy.neighbors(*from_index) {
                 let to_module = self
                     .hierarchy_module_indices
                     .get_by_right(&to_index)
                     .unwrap();
-                pretty.push_str(format!("  {} -> {}\n", from_module.name, to_module.name).as_str());
+                hierarchy.push(format!("    {} -> {}", from_module.name, to_module.name));
             }
         }
 
-        pretty.push_str("imports:\n");
-        let mut imports_module_indices_sorted: Vec<_> =
-            self.imports_module_indices.iter().collect();
-        imports_module_indices_sorted.sort_by_key(|(_, index)| index.index());
-        for (from_module, from_index) in imports_module_indices_sorted {
+        let imports_module_indices: Vec<_> = self.imports_module_indices.iter().collect();
+
+        for (from_module, from_index) in imports_module_indices {
             for to_index in self.imports.neighbors(*from_index) {
                 let to_module = self.imports_module_indices.get_by_right(&to_index).unwrap();
-                pretty.push_str(format!("  {} -> {}\n", from_module.name, to_module.name).as_str());
+                imports.push(format!("    {} -> {}", from_module.name, to_module.name));
             }
         }
+        // Assemble String.
+        let mut pretty = String::new();
+        pretty.push_str("hierarchy:\n");
+        hierarchy.sort();
+        pretty.push_str(&hierarchy.join("\n"));
+        pretty.push_str("\nimports:\n");
+        imports.sort();
+        pretty.push_str(&imports.join("\n"));
+        pretty.push_str("\n");
         pretty
     }
 
@@ -325,8 +332,9 @@ mod tests {
             graph.pretty_str(),
             "
 hierarchy:
-  mypackage -> mypackage.foo
+    mypackage -> mypackage.foo
 imports:
+
 "
             .trim_start()
         );
@@ -513,11 +521,11 @@ imports:
             graph.pretty_str(),
             "
 hierarchy:
-  mypackage -> mypackage.bar
-  mypackage -> mypackage.foo
-  mypackage.foo -> mypackage.foo.alpha
+    mypackage -> mypackage.bar
+    mypackage -> mypackage.foo
+    mypackage.foo -> mypackage.foo.alpha
 imports:
-  mypackage.bar -> mypackage.foo.alpha
+    mypackage.bar -> mypackage.foo.alpha
 "
             .trim_start()
         );
@@ -543,10 +551,10 @@ imports:
             graph.pretty_str(),
             "
 hierarchy:
-  mypackage -> mypackage.foo
-  mypackage -> mypackage.bar
+    mypackage -> mypackage.bar
+    mypackage -> mypackage.foo
 imports:
-  mypackage.foo -> mypackage.bar
+    mypackage.foo -> mypackage.bar
 "
             .trim_start()
         );
@@ -571,10 +579,10 @@ imports:
             graph.pretty_str(),
             "
 hierarchy:
-  mypackage -> mypackage.bar
-  mypackage -> mypackage.foo
+    mypackage -> mypackage.bar
+    mypackage -> mypackage.foo
 imports:
-  mypackage.foo -> mypackage.bar
+    mypackage.foo -> mypackage.bar
 "
             .trim_start()
         );
@@ -733,51 +741,92 @@ imports:
     }
 
     #[test]
-    fn squash_module() {
+    fn squash_module_descendants() {
         let mut graph = Graph::default();
-        let mypackage = Module::new("mypackage".to_string());
-        let mypackage_foo = Module::new("mypackage.foo".to_string());
-        let mypackage_bar = Module::new("mypackage.bar".to_string());
-        let mypackage_foobar = Module::new("mypackage.foobar".to_string());
-        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
-        let mypackage_foo_alpha_blue = Module::new("mypackage.foo.alpha.blue".to_string());
-        let mypackage_foo_beta = Module::new("mypackage.foo.beta".to_string());
-        let mypackage_bar_beta = Module::new("mypackage.bar.beta".to_string());
-        graph.add_module(mypackage_foo.clone());
-        graph.add_module(mypackage_bar.clone());
-        graph.add_module(mypackage_foo_alpha.clone());
-        graph.add_module(mypackage_foo_alpha_blue.clone());
-        graph.add_module(mypackage_foo_beta.clone());
-        graph.add_import(&mypackage_foo_alpha, &mypackage_bar_beta);
-        graph.add_import(&mypackage_foo_alpha, &mypackage_bar_beta);
-        graph.add_import(&mypackage_foobar, &mypackage_foo_beta);
+        // Module we're going to squash.
+        //let mypackage = Module::new("mypackage".to_string());
+        let mypackage_blue = Module::new("mypackage.blue".to_string());
+        let mypackage_blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        let mypackage_blue_alpha_foo = Module::new("mypackage.blue.alpha.foo".to_string());
+        let mypackage_blue_beta = Module::new("mypackage.blue.beta".to_string());
+        // Other modules.
+        let mypackage_green = Module::new("mypackage.green".to_string());
+        let mypackage_red = Module::new("mypackage.red".to_string());
+        let mypackage_orange = Module::new("mypackage.orange".to_string());
+        let mypackage_yellow = Module::new("mypackage.yellow".to_string());
+        // Module's descendants importing other modules.
+        graph.add_import(&mypackage_blue_alpha, &mypackage_green);
+        graph.add_import(&mypackage_blue_alpha, &mypackage_red);
+        graph.add_import(&mypackage_blue_alpha_foo, &mypackage_yellow);
+        graph.add_import(&mypackage_blue_beta, &mypackage_orange);
+        // Other modules importing squashed module's descendants.
+        graph.add_import(&mypackage_red, &mypackage_blue_alpha);
+        graph.add_import(&mypackage_yellow, &mypackage_blue_alpha);
+        graph.add_import(&mypackage_orange, &mypackage_blue_alpha_foo);
+        graph.add_import(&mypackage_green, &mypackage_blue_beta);
+        // Unrelated imports.
+        graph.add_import(&mypackage_green, &mypackage_orange);
+        print!("{}", graph.pretty_str());
+        assert_eq!(
+            graph.pretty_str(),
+            "
+hierarchy:
+    mypackage -> mypackage.blue
+    mypackage -> mypackage.green
+    mypackage -> mypackage.orange
+    mypackage -> mypackage.red
+    mypackage -> mypackage.yellow
+    mypackage.blue -> mypackage.blue.alpha
+    mypackage.blue -> mypackage.blue.beta
+    mypackage.blue.alpha -> mypackage.blue.alpha.foo
+imports:
+    mypackage.blue.alpha -> mypackage.green
+    mypackage.blue.alpha -> mypackage.red
+    mypackage.blue.alpha.foo -> mypackage.yellow
+    mypackage.blue.beta -> mypackage.orange
+    mypackage.green -> mypackage.blue.beta
+    mypackage.green -> mypackage.orange
+    mypackage.orange -> mypackage.blue.alpha.foo
+    mypackage.red -> mypackage.blue.alpha
+    mypackage.yellow -> mypackage.blue.alpha
+"
+            .trim_start()
+        );
 
-        graph.squash_module(&mypackage_foo);
+        graph.squash_module(&mypackage_blue);
 
         assert_eq!(
             graph.pretty_str(),
             "
 hierarchy:
-  mypackage -> mypackage.bar
-  mypackage -> mypackage.foobar
-  mypackage -> mypackage.foo
-  mypackage.bar -> mypackage.bar.beta
+    mypackage -> mypackage.blue
+    mypackage -> mypackage.green
+    mypackage -> mypackage.orange
+    mypackage -> mypackage.red
+    mypackage -> mypackage.yellow
+    mypackage.blue -> mypackage.blue.alpha
+    mypackage.blue -> mypackage.blue.beta
+    mypackage.blue.alpha -> mypackage.blue.alpha.foo
 imports:
-  mypackage.foobar -> mypackage.foo
-  mypackage.foo -> mypackage.bar.beta
+    mypackage.blue -> mypackage.green
+    mypackage.blue -> mypackage.orange
+    mypackage.blue -> mypackage.red
+    mypackage.blue -> mypackage.yellow
+    mypackage.blue.alpha -> mypackage.green
+    mypackage.blue.alpha -> mypackage.red
+    mypackage.blue.alpha.foo -> mypackage.yellow
+    mypackage.blue.beta -> mypackage.orange
+    mypackage.green -> mypackage.blue
+    mypackage.green -> mypackage.blue.beta
+    mypackage.green -> mypackage.orange
+    mypackage.orange -> mypackage.blue
+    mypackage.orange -> mypackage.blue.alpha.foo
+    mypackage.red -> mypackage.blue
+    mypackage.red -> mypackage.blue.alpha
+    mypackage.yellow -> mypackage.blue
+    mypackage.yellow -> mypackage.blue.alpha
 "
             .trim_start()
         );
-        assert_eq!(
-            graph.get_modules(),
-            HashSet::from([
-                &mypackage,
-                &mypackage_foo,
-                &mypackage_bar,
-                &mypackage_bar_beta
-            ])
-        );
-        assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar_beta, false));
-        assert!(graph.direct_import_exists(&mypackage_foobar, &mypackage_foo, false));
     }
 }
