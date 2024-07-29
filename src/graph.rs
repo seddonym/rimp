@@ -104,6 +104,18 @@ impl Graph {
         }
     }
 
+    pub fn remove_module(&mut self, module: &Module) {
+        if let Some(hierarchy_index) = self.hierarchy_module_indices.get_by_left(module) {
+            self.hierarchy.remove_node(*hierarchy_index);
+            self.hierarchy_module_indices.remove_by_left(module);
+        };
+
+        if let Some(imports_index) = self.imports_module_indices.get_by_left(module) {
+            self.imports.remove_node(*imports_index);
+            self.imports_module_indices.remove_by_left(module);
+        };
+    }
+
     pub fn get_modules(&self) -> HashSet<&Module> {
         self.hierarchy_module_indices.left_values().collect()
     }
@@ -268,19 +280,7 @@ impl Graph {
 
         // Remove any descendants.
         for descendant in descendants {
-            if let Some(descendant_hierarchy_index) =
-                self.hierarchy_module_indices.get_by_left(&descendant)
-            {
-                self.hierarchy.remove_node(*descendant_hierarchy_index);
-                self.hierarchy_module_indices.remove_by_left(&descendant);
-            };
-
-            if let Some(descendant_imports_index) =
-                self.imports_module_indices.get_by_left(&descendant)
-            {
-                self.imports.remove_node(*descendant_imports_index);
-                self.imports_module_indices.remove_by_left(&descendant);
-            };
+            self.remove_module(&descendant);
         }
 
         // Add descendants and imports to parent module.
@@ -350,6 +350,74 @@ imports:
 
 "
             .trim_start()
+        );
+    }
+
+    #[test]
+    fn remove_nonexistent_module() {
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mut graph = Graph::default();
+        // Add mypackage but not mypackage.foo.
+        graph.add_module(mypackage.clone());
+
+        graph.remove_module(&mypackage_foo);
+
+        let result = graph.get_modules();
+        assert_eq!(result, HashSet::from([&mypackage]));
+    }
+
+    #[test]
+    fn remove_existing_module_without_imports() {
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+
+        let mut graph = Graph::default();
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+
+        graph.remove_module(&mypackage_foo);
+
+        let result = graph.get_modules();
+        assert_eq!(
+            result,
+            HashSet::from([
+                &mypackage,
+                &mypackage_foo_alpha, // To be consistent with previous versions of Grimp.
+            ])
+        );
+    }
+
+    #[test]
+    fn remove_existing_module_with_imports() {
+        let mypackage = Module::new("mypackage".to_string());
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_foo_alpha = Module::new("mypackage.foo.alpha".to_string());
+        let importer = Module::new("importer".to_string());
+        let imported = Module::new("importer".to_string());
+        let mut graph = Graph::default();
+        graph.add_module(mypackage.clone());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_foo_alpha.clone());
+        graph.add_import(&importer, &mypackage_foo);
+        graph.add_import(&mypackage_foo, &imported);
+
+        graph.remove_module(&mypackage_foo);
+
+        let result = graph.get_modules();
+        assert_eq!(
+            result,
+            HashSet::from([&mypackage, &mypackage_foo_alpha, &importer, &imported])
+        );
+        assert_eq!(
+            graph.direct_import_exists(&importer, &mypackage_foo, false),
+            false
+        );
+        assert_eq!(
+            graph.direct_import_exists(&mypackage_foo, &imported, false),
+            false
         );
     }
 
