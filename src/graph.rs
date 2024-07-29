@@ -78,7 +78,7 @@ impl Graph {
         pretty.push_str("\nimports:\n");
         imports.sort();
         pretty.push_str(&imports.join("\n"));
-        pretty.push_str("\n");
+        pretty.push('\n');
         pretty
     }
 
@@ -126,10 +126,10 @@ impl Graph {
     }
 
     pub fn add_import(&mut self, importer: &Module, imported: &Module) {
-        self.add_module_if_not_in_hierarchy(&importer);
-        self.add_module_if_not_in_hierarchy(&imported);
+        self.add_module_if_not_in_hierarchy(importer);
+        self.add_module_if_not_in_hierarchy(imported);
 
-        let importer_index: NodeIndex = match self.imports_module_indices.get_by_left(&importer) {
+        let importer_index: NodeIndex = match self.imports_module_indices.get_by_left(importer) {
             Some(index) => *index,
             None => {
                 let index = self.imports.add_node(importer.clone());
@@ -137,7 +137,7 @@ impl Graph {
                 index
             }
         };
-        let imported_index: NodeIndex = match self.imports_module_indices.get_by_left(&imported) {
+        let imported_index: NodeIndex = match self.imports_module_indices.get_by_left(imported) {
             Some(index) => *index,
             None => {
                 let index = self.imports.add_node(imported.clone());
@@ -167,7 +167,7 @@ impl Graph {
         let graph_to_use: &Graph;
         let mut graph_copy: Graph;
 
-        if as_packages == true {
+        if as_packages {
             graph_copy = self.clone();
             graph_copy.squash_module(importer);
             graph_copy.squash_module(imported);
@@ -178,16 +178,18 @@ impl Graph {
 
         // The modules may appear in the hierarchy, but have no imports, so we
         // return false unless they're both in there.
-        let importer_index = match self.imports_module_indices.get_by_left(importer) {
+        let importer_index = match graph_to_use.imports_module_indices.get_by_left(importer) {
             Some(importer_index) => *importer_index,
             None => return false,
         };
-        let imported_index = match self.imports_module_indices.get_by_left(imported) {
+        let imported_index = match graph_to_use.imports_module_indices.get_by_left(imported) {
             Some(imported_index) => *imported_index,
             None => return false,
         };
 
-        self.imports.contains_edge(importer_index, imported_index)
+        graph_to_use
+            .imports
+            .contains_edge(importer_index, imported_index)
     }
 
     pub fn find_modules_that_directly_import(&self, imported: &Module) -> HashSet<&Module> {
@@ -208,14 +210,14 @@ impl Graph {
         for i in importer_indices.iter() {
             println!(
                 "Importer {:?}",
-                self.imports_module_indices.get_by_right(&i).unwrap()
+                self.imports_module_indices.get_by_right(i).unwrap()
             );
         }
         let importers: HashSet<&Module> = importer_indices
             .iter()
             .map(|importer_index| {
                 self.imports_module_indices
-                    .get_by_right(&importer_index)
+                    .get_by_right(importer_index)
                     .unwrap()
             })
             .collect();
@@ -236,7 +238,7 @@ impl Graph {
             .iter()
             .map(|imported_index| {
                 self.imports_module_indices
-                    .get_by_right(&imported_index)
+                    .get_by_right(imported_index)
                     .unwrap()
             })
             .collect();
@@ -264,22 +266,21 @@ impl Graph {
             })
             .collect();
 
-        // Remove descendants.
+        // Remove any descendants.
         for descendant in descendants {
-            let descendant_hierarchy_index = self
-                .hierarchy_module_indices
-                .get_by_left(&descendant)
-                .unwrap();
-            self.hierarchy
-                .remove_node(descendant_hierarchy_index.clone());
-            self.hierarchy_module_indices.remove_by_left(&descendant);
+            if let Some(descendant_hierarchy_index) =
+                self.hierarchy_module_indices.get_by_left(&descendant)
+            {
+                self.hierarchy.remove_node(*descendant_hierarchy_index);
+                self.hierarchy_module_indices.remove_by_left(&descendant);
+            };
 
-            let descendant_imports_index = self
-                .imports_module_indices
-                .get_by_left(&descendant)
-                .unwrap();
-            self.imports.remove_node(descendant_imports_index.clone());
-            self.imports_module_indices.remove_by_left(&descendant);
+            if let Some(descendant_imports_index) =
+                self.imports_module_indices.get_by_left(&descendant)
+            {
+                self.imports.remove_node(*descendant_imports_index);
+                self.imports_module_indices.remove_by_left(&descendant);
+            };
         }
 
         // Add descendants and imports to parent module.
@@ -293,7 +294,7 @@ impl Graph {
     }
 
     fn add_module_if_not_in_hierarchy(&mut self, module: &Module) {
-        if self.hierarchy_module_indices.get_by_left(&module).is_none() {
+        if self.hierarchy_module_indices.get_by_left(module).is_none() {
             self.add_module(module.clone());
         };
     }
@@ -600,8 +601,7 @@ imports:
         );
     }
 
-    //#[test]
-    // TODO: get squash_module working first
+    #[test]
     fn direct_import_exists_with_as_packages_returns_false() {
         let mut graph = Graph::default();
         let mypackage = Module::new("mypackage".to_string());
@@ -646,8 +646,7 @@ imports:
         assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar, true));
     }
 
-    //#[test]
-    // TODO: get squash_module working first
+    #[test]
     fn direct_import_exists_with_as_packages_returns_true_root_to_child() {
         let mut graph = Graph::default();
         let mypackage = Module::new("mypackage".to_string());
