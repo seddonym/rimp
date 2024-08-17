@@ -4,19 +4,19 @@ find_children - DONE
 find_descendants - DONE
 direct_import_exists - DONE
 find_modules_directly_imported_by - DONE
-find_modules_that_directly_import -  NO TESTS?
-get_import_details - TODO
+    find_modules_that_directly_import -  NO TESTS?
+    get_import_details - TODO
 count_imports - DONE
-find_downstream_modules - TODO
-find_upstream_modules - TODO
-find_shortest_chain - TODO
-find_shortest_chains - TODO
-chain_exists - TODO
-find_illegal_dependencies_for_layers - TODO
+    find_downstream_modules - TODO
+    find_upstream_modules - TODO
+    find_shortest_chain - TODO
+    find_shortest_chains - TODO
+    chain_exists - TODO
+    find_illegal_dependencies_for_layers - TODO
 add_module - DONE
 remove_module - DONE
-add_import - PARTIALLY DONE - need to support metadata.
-remove_import - TODO
+    add_import - PARTIALLY DONE - need to support metadata.
+    remove_import - TODO
 squash_module - DONE
 is_module_squashed - DONE
 
