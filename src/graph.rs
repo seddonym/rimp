@@ -120,6 +120,10 @@ impl Graph {
         self.hierarchy_module_indices.left_values().collect()
     }
 
+    pub fn count_imports(&self) -> usize {
+        self.imports.edge_count()
+    }
+
     pub fn find_children(&self, module: &Module) -> HashSet<&Module> {
         let module_index = self.hierarchy_module_indices.get_by_left(module).unwrap();
         self.hierarchy
@@ -894,5 +898,41 @@ imports:
 "
             .trim_start()
         );
+    }
+
+    #[test]
+    fn find_count_imports_empty_graph() {
+        let mut graph = Graph::default();
+
+        let result = graph.count_imports();
+
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn find_count_imports_modules_but_no_imports() {
+        let mut graph = Graph::default();
+        graph.add_module(Module::new("mypackage.foo".to_string()));
+        graph.add_module(Module::new("mypackage.bar".to_string()));
+
+        let result = graph.count_imports();
+
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn find_count_imports_some_imports() {
+        let mut graph = Graph::default();
+        let mypackage_foo = Module::new("mypackage.foo".to_string());
+        let mypackage_bar = Module::new("mypackage.bar".to_string());
+        let mypackage_baz = Module::new("mypackage.baz".to_string());
+        graph.add_module(mypackage_foo.clone());
+        graph.add_module(mypackage_bar.clone());
+        graph.add_import(&mypackage_foo, &mypackage_bar);
+        graph.add_import(&mypackage_foo, &mypackage_baz);
+
+        let result = graph.count_imports();
+
+        assert_eq!(result, 2);
     }
 }
