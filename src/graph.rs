@@ -18,7 +18,9 @@ remove_module - DONE
 add_import - PARTIALLY DONE - need to support metadata.
 remove_import - TODO
 squash_module - DONE
-is_module_squashed - TODO
+is_module_squashed - DONE
+
+Also, sensible behaviour when passing modules that don't exist in the graph.
 */
 #![allow(dead_code)]
 
@@ -65,6 +67,7 @@ struct Graph {
     hierarchy: StableGraph<Module, ()>,
     imports_module_indices: BiMap<Module, NodeIndex>,
     imports: StableGraph<Module, ()>,
+    squashed_modules: HashSet<Module>,
 }
 
 impl Graph {
@@ -317,6 +320,12 @@ impl Graph {
         for importer in modules_that_import_descendants {
             self.add_import(&importer, module);
         }
+
+        self.squashed_modules.insert(module.clone());
+    }
+
+    pub fn is_module_squashed(&mut self, module: &Module) -> bool {
+        self.squashed_modules.contains(module)
     }
 
     fn add_module_if_not_in_hierarchy(&mut self, module: &Module) {
@@ -923,6 +932,26 @@ imports:
     }
 
     #[test]
+    fn squash_module_no_descendants() {
+        let mut graph = Graph::default();
+        let mypackage_blue = Module::new("mypackage.blue".to_string());
+        graph.add_module(mypackage_blue.clone());
+
+        graph.squash_module(&mypackage_blue);
+
+        assert_eq!(
+            graph.pretty_str(),
+            "
+hierarchy:
+    mypackage -> mypackage.blue
+imports:
+
+"
+            .trim_start()
+        );
+    }
+
+    #[test]
     fn find_count_imports_empty_graph() {
         let mut graph = Graph::default();
 
@@ -956,5 +985,41 @@ imports:
         let result = graph.count_imports();
 
         assert_eq!(result, 2);
+    }
+
+    #[test]
+    fn is_module_squashed_when_not_squashed() {
+        let mut graph = Graph::default();
+        // Module we're going to squash.
+        let mypackage_blue = Module::new("mypackage.blue".to_string());
+        let mypackage_blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        // Other module.
+        let mypackage_green = Module::new("mypackage.green".to_string());
+        graph.add_module(mypackage_blue.clone());
+        graph.add_module(mypackage_blue_alpha.clone());
+        graph.add_module(mypackage_green.clone());
+        graph.squash_module(&mypackage_blue);
+
+        let result = graph.is_module_squashed(&mypackage_green);
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn is_module_squashed_when_squashed() {
+        let mut graph = Graph::default();
+        // Module we're going to squash.
+        let mypackage_blue = Module::new("mypackage.blue".to_string());
+        let mypackage_blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        // Other module.
+        let mypackage_green = Module::new("mypackage.green".to_string());
+        graph.add_module(mypackage_blue.clone());
+        graph.add_module(mypackage_blue_alpha.clone());
+        graph.add_module(mypackage_green.clone());
+        graph.squash_module(&mypackage_blue);
+
+        let result = graph.is_module_squashed(&mypackage_blue);
+
+        assert!(result);
     }
 }
