@@ -8,7 +8,7 @@ find_modules_that_directly_import -  DONE
     get_import_details - TODO
 count_imports - DONE
 find_downstream_modules - DONE
-    find_upstream_modules - TODO
+find_upstream_modules - DONE
     find_shortest_chain - TODO
     find_shortest_chains - TODO
     chain_exists - TODO
@@ -313,6 +313,24 @@ impl Graph {
         };
         Bfs::new(&self.imports, module_index)
             .iter(&self.imports)
+            .filter(|index| *index != module_index) // Don't include the supplied module.
+            .map(|index| self.imports_module_indices.get_by_right(&index).unwrap())
+            .collect()
+    }
+
+    pub fn find_upstream_modules(&self, module: &Module) -> HashSet<&Module> {
+        let module_index = match self.imports_module_indices.get_by_left(module) {
+            Some(index) => *index,
+            None => return HashSet::new(),
+        };
+
+        // Reverse all the edges in the graph and then do what we do in find_downstream_modules.
+        // Is there a way of doing this without the clone?
+        let mut reversed_graph = self.imports.clone();
+        reversed_graph.reverse();
+
+        Bfs::new(&reversed_graph, module_index)
+            .iter(&reversed_graph)
             .filter(|index| *index != module_index) // Don't include the supplied module.
             .map(|index| self.imports_module_indices.get_by_right(&index).unwrap())
             .collect()
@@ -1106,6 +1124,7 @@ imports:
         let yellow = Module::new("mypackage.yellow".to_string());
         let purple = Module::new("mypackage.purple".to_string());
         let orange = Module::new("mypackage.orange".to_string());
+        let brown = Module::new("mypackage.brown".to_string());
         graph.add_module(mypackage.clone());
         graph.add_module(blue.clone());
         graph.add_module(green.clone());
@@ -1113,11 +1132,14 @@ imports:
         graph.add_module(yellow.clone());
         graph.add_module(purple.clone());
         graph.add_module(orange.clone());
+        graph.add_module(brown.clone());
         // Add the import chain we care about.
         graph.add_import(&blue, &green);
         graph.add_import(&blue, &red);
         graph.add_import(&green, &yellow);
         graph.add_import(&yellow, &purple);
+        // Add an import to blue.
+        graph.add_import(&brown, &blue);
 
         let result = graph.find_downstream_modules(&blue);
 
@@ -1130,6 +1152,48 @@ imports:
         let blue = Module::new("mypackage.blue".to_string());
 
         let result = graph.find_downstream_modules(&blue);
+
+        assert_eq!(result, HashSet::new())
+    }
+
+    #[test]
+    fn find_upstream_modules_when_there_are_some() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let yellow = Module::new("mypackage.yellow".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        let orange = Module::new("mypackage.orange".to_string());
+        let brown = Module::new("mypackage.brown".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(yellow.clone());
+        graph.add_module(purple.clone());
+        graph.add_module(orange.clone());
+        graph.add_module(brown.clone());
+        // Add the import chain we care about.
+        graph.add_import(&blue, &green);
+        graph.add_import(&blue, &red);
+        graph.add_import(&green, &yellow);
+        graph.add_import(&yellow, &purple);
+        // Add an import from purple.
+        graph.add_import(&purple, &brown);
+
+        let result = graph.find_upstream_modules(&purple);
+
+        assert_eq!(result, HashSet::from([&yellow, &green, &blue]))
+    }
+
+    #[test]
+    fn find_upstream_modules_when_module_doesnt_exist() {
+        let mut graph = Graph::default();
+        let blue = Module::new("mypackage.blue".to_string());
+
+        let result = graph.find_upstream_modules(&blue);
 
         assert_eq!(result, HashSet::new())
     }
