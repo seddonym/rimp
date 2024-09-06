@@ -4,7 +4,7 @@ find_children - DONE
 find_descendants - DONE
 direct_import_exists - DONE
 find_modules_directly_imported_by - DONE
-    find_modules_that_directly_import -  NO TESTS?
+find_modules_that_directly_import -  DONE
     get_import_details - TODO
 count_imports - DONE
     find_downstream_modules - TODO
@@ -16,7 +16,7 @@ count_imports - DONE
 add_module - DONE
 remove_module - DONE
     add_import - PARTIALLY DONE - need to support metadata.
-    remove_import - TODO
+remove_import - DONE
 squash_module - DONE
 is_module_squashed - DONE
 
@@ -25,6 +25,7 @@ Also, sensible behaviour when passing modules that don't exist in the graph.
 #![allow(dead_code)]
 
 use bimap::BiMap;
+use petgraph::graph::EdgeIndex;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{Bfs, Walker};
 use petgraph::Direction;
@@ -196,6 +197,25 @@ impl Graph {
         //     imported_index,
         //     self.imports.edge_count()
         // );
+    }
+
+    pub fn remove_import(&mut self, importer: &Module, imported: &Module) {
+        let importer_index: NodeIndex = match self.imports_module_indices.get_by_left(importer) {
+            Some(index) => *index,
+            None => return,
+        };
+        let imported_index: NodeIndex = match self.imports_module_indices.get_by_left(imported) {
+            Some(index) => *index,
+            None => return,
+        };
+        let edge_index: EdgeIndex = match self.imports.find_edge(importer_index, imported_index) {
+            Some(index) => index,
+            None => return,
+        };
+
+        self.imports.remove_edge(edge_index);
+        self.imports_module_indices.remove_by_left(importer);
+        self.imports_module_indices.remove_by_left(importer);
     }
 
     #[allow(unused_variables)]
@@ -454,6 +474,47 @@ imports:
             graph.direct_import_exists(&mypackage_foo, &imported, false),
             false
         );
+    }
+
+    #[test]
+    fn remove_import_that_exists() {
+        let importer = Module::new("importer".to_string());
+        let imported = Module::new("importer".to_string());
+        let mut graph = Graph::default();
+        graph.add_import(&importer, &imported);
+
+        graph.remove_import(&importer, &imported);
+
+        // The import has gone...
+        assert_eq!(
+            graph.direct_import_exists(&importer, &imported, false),
+            false
+        );
+        // ...but the modules are still there.
+        assert_eq!(graph.get_modules(), HashSet::from([&importer, &imported]));
+    }
+
+    #[test]
+    fn remove_import_does_nothing_if_import_doesnt_exist() {
+        let importer = Module::new("importer".to_string());
+        let imported = Module::new("importer".to_string());
+        let mut graph = Graph::default();
+        graph.add_module(importer.clone());
+        graph.add_module(imported.clone());
+
+        graph.remove_import(&importer, &imported);
+
+        // The modules are still there.
+        assert_eq!(graph.get_modules(), HashSet::from([&importer, &imported]));
+    }
+
+    #[test]
+    fn remove_import_does_nothing_if_modules_dont_exist() {
+        let importer = Module::new("importer".to_string());
+        let imported = Module::new("importer".to_string());
+        let mut graph = Graph::default();
+
+        graph.remove_import(&importer, &imported);
     }
 
     #[test]
