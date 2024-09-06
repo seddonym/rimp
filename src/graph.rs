@@ -7,7 +7,7 @@ find_modules_directly_imported_by - DONE
 find_modules_that_directly_import -  DONE
     get_import_details - TODO
 count_imports - DONE
-    find_downstream_modules - TODO
+find_downstream_modules - DONE
     find_upstream_modules - TODO
     find_shortest_chain - TODO
     find_shortest_chains - TODO
@@ -304,6 +304,18 @@ impl Graph {
             })
             .collect();
         importeds
+    }
+
+    pub fn find_downstream_modules(&self, module: &Module) -> HashSet<&Module> {
+        let module_index = match self.imports_module_indices.get_by_left(module) {
+            Some(index) => *index,
+            None => return HashSet::new(),
+        };
+        Bfs::new(&self.imports, module_index)
+            .iter(&self.imports)
+            .filter(|index| *index != module_index) // Don't include the supplied module.
+            .map(|index| self.imports_module_indices.get_by_right(&index).unwrap())
+            .collect()
     }
 
     #[allow(unused_variables)]
@@ -1082,5 +1094,43 @@ imports:
         let result = graph.is_module_squashed(&mypackage_blue);
 
         assert!(result);
+    }
+
+    #[test]
+    fn find_downstream_modules_when_there_are_some() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let yellow = Module::new("mypackage.yellow".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        let orange = Module::new("mypackage.orange".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(yellow.clone());
+        graph.add_module(purple.clone());
+        graph.add_module(orange.clone());
+        // Add the import chain we care about.
+        graph.add_import(&blue, &green);
+        graph.add_import(&blue, &red);
+        graph.add_import(&green, &yellow);
+        graph.add_import(&yellow, &purple);
+
+        let result = graph.find_downstream_modules(&blue);
+
+        assert_eq!(result, HashSet::from([&green, &red, &yellow, &purple]))
+    }
+
+    #[test]
+    fn find_downstream_modules_when_module_doesnt_exist() {
+        let mut graph = Graph::default();
+        let blue = Module::new("mypackage.blue".to_string());
+
+        let result = graph.find_downstream_modules(&blue);
+
+        assert_eq!(result, HashSet::new())
     }
 }
