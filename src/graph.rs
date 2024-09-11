@@ -9,7 +9,7 @@ find_modules_that_directly_import -  DONE
 count_imports - DONE
 find_downstream_modules - DONE
 find_upstream_modules - DONE
-    find_shortest_chain - TODO
+find_shortest_chain - DONE
     find_shortest_chains - TODO
     chain_exists - TODO
     find_illegal_dependencies_for_layers - TODO
@@ -25,6 +25,7 @@ Also, sensible behaviour when passing modules that don't exist in the graph.
 #![allow(dead_code)]
 
 use bimap::BiMap;
+use petgraph::algo::astar;
 use petgraph::graph::EdgeIndex;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{Bfs, Walker};
@@ -334,6 +335,41 @@ impl Graph {
             .filter(|index| *index != module_index) // Don't include the supplied module.
             .map(|index| self.imports_module_indices.get_by_right(&index).unwrap())
             .collect()
+    }
+
+    pub fn find_shortest_chain(
+        &self,
+        importer: &Module,
+        imported: &Module,
+    ) -> Option<Vec<&Module>> {
+        let importer_index = match self.imports_module_indices.get_by_left(importer) {
+            Some(index) => *index,
+            None => return None, // Importer has no imports to or from.
+        };
+        let imported_index = match self.imports_module_indices.get_by_left(imported) {
+            Some(index) => *index,
+            None => return None, // Imported has no imports to or from.
+        };
+        let path_to_imported = match astar(
+            &self.imports,
+            importer_index,
+            |finish| finish == imported_index,
+            |e| 1,
+            |_| 0,
+        ) {
+            Some(path_tuple) => path_tuple.1,
+            None => return None, // No chain to the imported.
+        };
+
+        let mut chain: Vec<&Module> = vec![];
+        for link_index in path_to_imported {
+            let module = self
+                .imports_module_indices
+                .get_by_right(&link_index)
+                .unwrap();
+            chain.push(module);
+        }
+        Some(chain)
     }
 
     #[allow(unused_variables)]
@@ -1196,5 +1232,119 @@ imports:
         let result = graph.find_upstream_modules(&blue);
 
         assert_eq!(result, HashSet::new())
+    }
+
+    // find_shortest_chain
+    #[test]
+    fn find_shortest_chain_none() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(purple.clone());
+        // Add imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chain(&blue, &green);
+
+        assert!(result.is_none())
+    }
+
+    #[test]
+    fn find_shortest_chain_one_step() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add the one-step chain.
+        graph.add_import(&blue, &green);
+        // Add a longer chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chain(&blue, &green).unwrap();
+
+        assert_eq!(result, vec![&blue, &green])
+    }
+
+    #[test]
+    fn find_shortest_chain_two_steps() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let orange = Module::new("mypackage.orange".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(orange.clone());
+        graph.add_module(purple.clone());
+        // Add the two-step chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &green);
+        // Add a longer chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &orange);
+        graph.add_import(&orange, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chain(&blue, &green).unwrap();
+
+        assert_eq!(result, vec![&blue, &red, &green])
+    }
+
+    #[test]
+    fn find_shortest_chain_three_steps() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let orange = Module::new("mypackage.orange".to_string());
+        let yellow = Module::new("mypackage.yellow".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(orange.clone());
+        graph.add_module(yellow.clone());
+        graph.add_module(purple.clone());
+        // Add the three-step chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &orange);
+        graph.add_import(&orange, &green);
+        // Add a longer chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &orange);
+        graph.add_import(&orange, &yellow);
+        graph.add_import(&yellow, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chain(&blue, &green).unwrap();
+
+        assert_eq!(result, vec![&blue, &red, &orange, &green])
     }
 }
