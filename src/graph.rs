@@ -372,6 +372,38 @@ impl Graph {
         Some(chain)
     }
 
+    // https://github.com/seddonym/grimp/blob/2b37bd9268655f99439f376625e08151a075a5bd/src/grimp/adaptors/graph.py#L290
+    pub fn find_shortest_chains(
+        &self,
+        importer: &Module,
+        imported: &Module,
+    ) -> HashSet<Vec<&Module>> {
+        let mut chains = HashSet::new();
+
+        let mut importer_modules: HashSet<&Module> = HashSet::from([importer]);
+        // TODO don't do this if module is squashed?
+        for descendant in self.find_descendants(&importer) {
+            importer_modules.insert(descendant);
+        }
+
+        let mut imported_modules: HashSet<&Module> = HashSet::from([imported]);
+        // TODO don't do this if module is squashed?
+        for descendant in self.find_descendants(&imported) {
+            imported_modules.insert(descendant);
+        }
+
+        // TODO - Error if modules have shared descendants.
+
+        for importer_module in importer_modules {
+            for imported_module in &imported_modules {
+                if let Some(chain) = self.find_shortest_chain(importer_module, imported_module) {
+                    chains.insert(chain);
+                }
+            }
+        }
+        chains
+    }
+
     #[allow(unused_variables)]
     pub fn squash_module(&mut self, module: &Module) {
         // Get descendants and their imports.
@@ -1346,5 +1378,174 @@ imports:
         let result = graph.find_shortest_chain(&blue, &green).unwrap();
 
         assert_eq!(result, vec![&blue, &red, &orange, &green])
+    }
+
+    // find_shortest_chains
+
+    #[test]
+    fn find_shortest_chains_none() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(purple.clone());
+        // Add imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chains(&blue, &green);
+
+        assert_eq!(result, HashSet::new())
+    }
+
+    #[test]
+    fn find_shortest_chains_between_passed_modules() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let orange = Module::new("mypackage.orange".to_string());
+        let yellow = Module::new("mypackage.yellow".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chains(&blue, &green);
+
+        assert_eq!(result, HashSet::from([vec![&blue, &red, &green],]))
+    }
+
+    #[test]
+    fn find_shortest_chains_between_passed_module_and_child() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let green_alpha = Module::new("mypackage.green.alpha".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let orange = Module::new("mypackage.orange".to_string());
+        let yellow = Module::new("mypackage.yellow".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(green_alpha.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &green_alpha);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chains(&blue, &green);
+
+        assert_eq!(result, HashSet::from([vec![&blue, &red, &green_alpha],]))
+    }
+
+    #[test]
+    fn find_shortest_chains_between_passed_module_and_grandchild() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let green_alpha = Module::new("mypackage.green.alpha".to_string());
+        let green_alpha_one = Module::new("mypackage.green.alpha.one".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        graph.add_module(green_alpha.clone());
+        graph.add_module(green_alpha_one.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue, &red);
+        graph.add_import(&red, &green_alpha_one);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chains(&blue, &green);
+
+        assert_eq!(
+            result,
+            HashSet::from([vec![&blue, &red, &green_alpha_one],])
+        )
+    }
+
+    #[test]
+    fn find_shortest_chains_between_child_and_passed_module() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(blue_alpha.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue_alpha, &red);
+        graph.add_import(&red, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chains(&blue, &green);
+
+        assert_eq!(result, HashSet::from([vec![&blue_alpha, &red, &green],]))
+    }
+
+    #[test]
+    fn find_shortest_chains_between_grandchild_and_passed_module() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        let blue_alpha_one = Module::new("mypackage.blue.alpha.one".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(blue_alpha.clone());
+        graph.add_module(blue_alpha_one.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue_alpha_one, &red);
+        graph.add_import(&red, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.find_shortest_chains(&blue, &green);
+
+        assert_eq!(
+            result,
+            HashSet::from([vec![&blue_alpha_one, &red, &green],])
+        )
     }
 }
