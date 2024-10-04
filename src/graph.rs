@@ -219,10 +219,10 @@ impl Graph {
     }
 
     pub fn add_detailed_import(&mut self, import: &DetailedImport) {
-        self.detailed_imports_map.insert(
-            (import.importer.clone(), import.imported.clone()),
-            HashSet::from([import.clone()])  // TODO don't overwrite.
-        );
+        let key = (import.importer.clone(), import.imported.clone());
+        self.detailed_imports_map.entry(key)
+            .or_insert_with(HashSet::new)
+            .insert(import.clone());
     }
 
     pub fn remove_import(&mut self, importer: &Module, imported: &Module) {
@@ -1747,10 +1747,42 @@ imports:
             line_number: 5,
             line_contents: "import bar".to_string(),
         };
+        let unrelated_import = DetailedImport {
+            importer: importer.clone(),
+            imported: Module::new("baz".to_string()),
+            line_number: 2,
+            line_contents: "-".to_string(),
+        };
         graph.add_detailed_import(&import);
+        graph.add_detailed_import(&unrelated_import);
 
         let result = graph.get_import_details(&importer, &imported);
 
         assert_eq!(result, HashSet::from([import]));
+    }
+
+    #[test]
+    fn get_import_details_module_two_results() {
+        let mut graph = Graph::default();
+        let blue = Module::new("blue".to_string());
+        let green = Module::new("green".to_string());
+        let blue_to_green_a = DetailedImport {
+            importer: blue.clone(),
+            imported: green.clone(),
+            line_number: 5,
+            line_contents: "import green".to_string(),
+        };
+        let blue_to_green_b = DetailedImport {
+            importer: blue.clone(),
+            imported: green.clone(),
+            line_number: 15,
+            line_contents: "import green".to_string(),
+        };
+        graph.add_detailed_import(&blue_to_green_a);
+        graph.add_detailed_import(&blue_to_green_b);
+
+        let result = graph.get_import_details(&blue, &green);
+
+        assert_eq!(result, HashSet::from([blue_to_green_a, blue_to_green_b]));
     }
 }
