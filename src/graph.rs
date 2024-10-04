@@ -30,7 +30,7 @@ use petgraph::graph::EdgeIndex;
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{Bfs, Walker};
 use petgraph::Direction;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 // Delimiter for Python modules.
 const DELIMITER: char = '.';
@@ -62,6 +62,15 @@ impl Module {
         Module::new(parent_name)
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct DetailedImport {
+    importer: Module,
+    imported: Module,
+    line_number: usize,
+    line_contents: String,
+}
+
 #[derive(Default, Clone)]
 struct Graph {
     // Bidirectional lookup between Module and NodeIndex.
@@ -70,6 +79,7 @@ struct Graph {
     imports_module_indices: BiMap<Module, NodeIndex>,
     imports: StableGraph<Module, ()>,
     squashed_modules: HashSet<Module>,
+    detailed_imports_map: HashMap<(Module, Module), HashSet<DetailedImport>>,
 }
 
 impl Graph {
@@ -151,6 +161,14 @@ impl Graph {
         self.imports.edge_count()
     }
 
+    pub fn get_import_details(&self, importer: &Module, imported: &Module) -> HashSet<DetailedImport> {
+        let key = (importer.clone(), imported.clone());
+        match self.detailed_imports_map.get(&key) {
+            Some(import_details) => import_details.clone(),
+            None => HashSet::new(),
+        }
+    }
+
     pub fn find_children(&self, module: &Module) -> HashSet<&Module> {
         let module_index = self.hierarchy_module_indices.get_by_left(module).unwrap();
         self.hierarchy
@@ -198,6 +216,13 @@ impl Graph {
         //     imported_index,
         //     self.imports.edge_count()
         // );
+    }
+
+    pub fn add_detailed_import(&mut self, import: &DetailedImport) {
+        self.detailed_imports_map.insert(
+            (import.importer.clone(), import.imported.clone()),
+            HashSet::from([import.clone()])  // TODO don't overwrite.
+        );
     }
 
     pub fn remove_import(&mut self, importer: &Module, imported: &Module) {
@@ -1686,5 +1711,46 @@ imports:
         let result = graph.chain_exists(&green, &blue, true);
 
         assert_eq!(result, false);
+    }
+
+    #[test]
+    fn get_import_details_no_modules() {
+        let graph = Graph::default();
+        let importer = Module::new("foo".to_string());
+        let imported = Module::new("bar".to_string());
+
+        let result = graph.get_import_details(&importer, &imported);
+
+        assert_eq!(result, HashSet::new());
+    }
+
+    #[test]
+    fn get_import_details_module_without_metadata() {
+        let mut graph = Graph::default();
+        let importer = Module::new("foo".to_string());
+        let imported = Module::new("bar".to_string());
+        graph.add_import(&importer, &imported);
+
+        let result = graph.get_import_details(&importer, &imported);
+
+        assert_eq!(result, HashSet::new());
+    }
+
+    #[test]
+    fn get_import_details_module_one_result() {
+        let mut graph = Graph::default();
+        let importer = Module::new("foo".to_string());
+        let imported = Module::new("bar".to_string());
+        let import = DetailedImport {
+            importer: importer.clone(),
+            imported: imported.clone(),
+            line_number: 5,
+            line_contents: "import bar".to_string(),
+        };
+        graph.add_detailed_import(&import);
+
+        let result = graph.get_import_details(&importer, &imported);
+
+        assert_eq!(result, HashSet::from([import]));
     }
 }
