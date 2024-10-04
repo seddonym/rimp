@@ -11,7 +11,7 @@ find_downstream_modules - DONE
 find_upstream_modules - DONE
 find_shortest_chain - DONE
     find_shortest_chains - TODO
-    chain_exists - TODO
+chain_exists - DONE
     find_illegal_dependencies_for_layers - TODO
 add_module - DONE
 remove_module - DONE
@@ -411,7 +411,17 @@ impl Graph {
         imported: &Module,
         as_packages: bool,
     ) -> bool {
-        true
+        let mut temp_graph;
+        let graph = match as_packages {
+            true => {
+                temp_graph = self.clone();
+                temp_graph.squash_module(importer);
+                temp_graph.squash_module(imported);
+                &temp_graph
+            },
+            false => self,
+        };
+        graph.find_shortest_chain(importer, imported).is_some()
     }
 
     #[allow(unused_variables)]
@@ -1325,6 +1335,21 @@ imports:
     }
 
     #[test]
+    fn find_shortest_chain_one_step_reverse() {
+        let mut graph = Graph::default();
+        let blue = Module::new("mypackage.blue".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        // Add the one-step chain.
+        graph.add_import(&blue, &green);
+
+        let result = graph.find_shortest_chain(&green, &blue);
+
+        assert_eq!(result.is_none(), true);
+    }
+
+    #[test]
     fn find_shortest_chain_two_steps() {
         let mut graph = Graph::default();
         let mypackage = Module::new("mypackage".to_string());
@@ -1604,11 +1629,61 @@ imports:
         // Add a chain.
         graph.add_import(&blue_alpha_one, &red);
         graph.add_import(&red, &green);
-        // Add other imports that are irrelevant.
-        graph.add_import(&purple, &blue);
-        graph.add_import(&green, &purple);
 
-        let result = graph.chain_exists(&green, &blue_alpha_one, false);
+        let result = graph.chain_exists(&blue, &green, false);
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn chain_exists_true_as_packages_true() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        let blue_alpha_one = Module::new("mypackage.blue.alpha.one".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(blue_alpha.clone());
+        graph.add_module(blue_alpha_one.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue_alpha_one, &red);
+        graph.add_import(&red, &green);
+
+
+        let result = graph.chain_exists(&blue, &green, true);
+
+        assert_eq!(result, true);
+    }
+
+    #[test]
+    fn chain_exists_false_as_packages_true() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        let blue_alpha_one = Module::new("mypackage.blue.alpha.one".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(blue_alpha.clone());
+        graph.add_module(blue_alpha_one.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue_alpha_one, &red);
+        graph.add_import(&red, &green);
+
+        let result = graph.chain_exists(&green, &blue, true);
 
         assert_eq!(result, false);
     }
