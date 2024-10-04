@@ -5,7 +5,7 @@ find_descendants - DONE
 direct_import_exists - DONE
 find_modules_directly_imported_by - DONE
 find_modules_that_directly_import -  DONE
-    get_import_details - TODO
+get_import_details - DONE
 count_imports - DONE
 find_downstream_modules - DONE
 find_upstream_modules - DONE
@@ -31,6 +31,7 @@ use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{Bfs, Walker};
 use petgraph::Direction;
 use std::collections::{HashSet, HashMap};
+use std::fmt;
 
 // Delimiter for Python modules.
 const DELIMITER: char = '.';
@@ -39,6 +40,13 @@ const DELIMITER: char = '.';
 struct Module {
     name: String,
 }
+
+impl fmt::Display for Module {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
 
 impl Module {
     pub fn new(name: String) -> Module {
@@ -223,6 +231,7 @@ impl Graph {
         self.detailed_imports_map.entry(key)
             .or_insert_with(HashSet::new)
             .insert(import.clone());
+        self.add_import(&import.importer, &import.imported);
     }
 
     pub fn remove_import(&mut self, importer: &Module, imported: &Module) {
@@ -242,6 +251,10 @@ impl Graph {
         self.imports.remove_edge(edge_index);
         self.imports_module_indices.remove_by_left(importer);
         self.imports_module_indices.remove_by_left(importer);
+        let key = (importer.clone(), imported.clone());
+
+        self.detailed_imports_map.remove(&key);
+        self.imports.remove_edge(edge_index);
     }
 
     #[allow(unused_variables)]
@@ -808,6 +821,25 @@ imports:
         graph.add_import(&mypackage_foo, &mypackage_bar);
 
         assert!(graph.direct_import_exists(&mypackage_foo, &mypackage_bar, false));
+    }
+
+    #[test]
+    fn add_detailed_import_adds_import() {
+        let mut graph = Graph::default();
+        let blue = Module::new("blue".to_string());
+        let green = Module::new("green".to_string());
+        graph.add_module(blue.clone());
+        graph.add_module(green.clone());
+        let import = DetailedImport {
+            importer: blue.clone(),
+            imported: green.clone(),
+            line_number: 11,
+            line_contents: "-".to_string(),
+        };
+
+        graph.add_detailed_import(&import);
+
+        assert_eq!(graph.direct_import_exists(&blue, &green, false), true);
     }
 
     #[test]
@@ -1784,5 +1816,57 @@ imports:
         let result = graph.get_import_details(&blue, &green);
 
         assert_eq!(result, HashSet::from([blue_to_green_a, blue_to_green_b]));
+    }
+
+    #[test]
+    fn get_import_details_after_removal() {
+        let mut graph = Graph::default();
+        let importer = Module::new("foo".to_string());
+        let imported = Module::new("bar".to_string());
+        let import = DetailedImport {
+            importer: importer.clone(),
+            imported: imported.clone(),
+            line_number: 5,
+            line_contents: "import bar".to_string(),
+        };
+        let unrelated_import = DetailedImport {
+            importer: importer.clone(),
+            imported: Module::new("baz".to_string()),
+            line_number: 2,
+            line_contents: "-".to_string(),
+        };
+        graph.add_detailed_import(&import);
+        graph.add_detailed_import(&unrelated_import);
+        graph.remove_import(&import.importer, &import.imported);
+
+        let result = graph.get_import_details(&importer, &imported);
+
+        assert_eq!(result, HashSet::new());
+    }
+
+    #[test]
+    fn get_import_details_after_removal_of_unrelated_import() {
+        let mut graph = Graph::default();
+        let importer = Module::new("foo".to_string());
+        let imported = Module::new("bar".to_string());
+        let import = DetailedImport {
+            importer: importer.clone(),
+            imported: imported.clone(),
+            line_number: 5,
+            line_contents: "import bar".to_string(),
+        };
+        let unrelated_import = DetailedImport {
+            importer: importer.clone(),
+            imported: Module::new("baz".to_string()),
+            line_number: 2,
+            line_contents: "-".to_string(),
+        };
+        graph.add_detailed_import(&import);
+        graph.add_detailed_import(&unrelated_import);
+        graph.remove_import(&unrelated_import.importer, &unrelated_import.imported);
+
+        let result = graph.get_import_details(&importer, &imported);
+
+        assert_eq!(result, HashSet::from([import]));
     }
 }
