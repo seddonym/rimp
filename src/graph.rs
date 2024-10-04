@@ -354,7 +354,7 @@ impl Graph {
             &self.imports,
             importer_index,
             |finish| finish == imported_index,
-            |e| 1,
+            |_e| 1,
             |_| 0,
         ) {
             Some(path_tuple) => path_tuple.1,
@@ -402,6 +402,16 @@ impl Graph {
             }
         }
         chains
+    }
+
+    #[allow(unused_variables)]
+    pub fn chain_exists(
+        &self,
+        importer: &Module,
+        imported: &Module,
+        as_packages: bool,
+    ) -> bool {
+        true
     }
 
     #[allow(unused_variables)]
@@ -1112,7 +1122,7 @@ imports:
 
     #[test]
     fn find_count_imports_empty_graph() {
-        let mut graph = Graph::default();
+        let graph = Graph::default();
 
         let result = graph.count_imports();
 
@@ -1216,7 +1226,7 @@ imports:
 
     #[test]
     fn find_downstream_modules_when_module_doesnt_exist() {
-        let mut graph = Graph::default();
+        let graph = Graph::default();
         let blue = Module::new("mypackage.blue".to_string());
 
         let result = graph.find_downstream_modules(&blue);
@@ -1258,7 +1268,7 @@ imports:
 
     #[test]
     fn find_upstream_modules_when_module_doesnt_exist() {
-        let mut graph = Graph::default();
+        let graph = Graph::default();
         let blue = Module::new("mypackage.blue".to_string());
 
         let result = graph.find_upstream_modules(&blue);
@@ -1409,8 +1419,6 @@ imports:
         let blue = Module::new("mypackage.blue".to_string());
         let green = Module::new("mypackage.green".to_string());
         let red = Module::new("mypackage.red".to_string());
-        let orange = Module::new("mypackage.orange".to_string());
-        let yellow = Module::new("mypackage.yellow".to_string());
         let purple = Module::new("mypackage.purple".to_string());
         graph.add_module(mypackage.clone());
         graph.add_module(blue.clone());
@@ -1437,8 +1445,6 @@ imports:
         let green = Module::new("mypackage.green".to_string());
         let green_alpha = Module::new("mypackage.green.alpha".to_string());
         let red = Module::new("mypackage.red".to_string());
-        let orange = Module::new("mypackage.orange".to_string());
-        let yellow = Module::new("mypackage.yellow".to_string());
         let purple = Module::new("mypackage.purple".to_string());
         graph.add_module(mypackage.clone());
         graph.add_module(blue.clone());
@@ -1547,5 +1553,63 @@ imports:
             result,
             HashSet::from([vec![&blue_alpha_one, &red, &green],])
         )
+    }
+
+    #[test]
+    fn chain_exists_true_as_packages_false() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        let blue_alpha_one = Module::new("mypackage.blue.alpha.one".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(blue_alpha.clone());
+        graph.add_module(blue_alpha_one.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue_alpha_one, &red);
+        graph.add_import(&red, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.chain_exists(&blue_alpha_one, &green, false);
+
+        assert!(result);
+    }
+
+    #[test]
+    fn chain_exists_false_as_packages_false() {
+        let mut graph = Graph::default();
+        let mypackage = Module::new("mypackage".to_string());
+        let blue = Module::new("mypackage.blue".to_string());
+        let blue_alpha = Module::new("mypackage.blue.alpha".to_string());
+        let blue_alpha_one = Module::new("mypackage.blue.alpha.one".to_string());
+        let green = Module::new("mypackage.green".to_string());
+        let red = Module::new("mypackage.red".to_string());
+        let purple = Module::new("mypackage.purple".to_string());
+        graph.add_module(mypackage.clone());
+        graph.add_module(blue.clone());
+        graph.add_module(blue_alpha.clone());
+        graph.add_module(blue_alpha_one.clone());
+        graph.add_module(green.clone());
+        graph.add_module(red.clone());
+        graph.add_module(purple.clone());
+        // Add a chain.
+        graph.add_import(&blue_alpha_one, &red);
+        graph.add_import(&red, &green);
+        // Add other imports that are irrelevant.
+        graph.add_import(&purple, &blue);
+        graph.add_import(&green, &purple);
+
+        let result = graph.chain_exists(&green, &blue_alpha_one, false);
+
+        assert_eq!(result, false);
     }
 }
